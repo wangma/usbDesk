@@ -4,6 +4,7 @@ import queue
 import time
 import traceback
 import shutil
+import platform
 import cv2
 from PyQt5.QtCore import Qt, QDateTime, QSize, QTimer, QRect, QPoint, QUrl
 from PyQt5.QtGui import QImage, QPixmap, QIcon, QPainter, QPen, QColor, QDesktopServices
@@ -414,11 +415,25 @@ class CameraWidget(QWidget):
         item_text = self.combo_cams.itemText(i)
         idx = self.combo_cams2camera[item_text]
 
+        sys_name = platform.system()
+        mjpg_fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
         yuyv_fourcc = cv2.VideoWriter_fourcc('Y', 'U', 'Y', 'V')
-        if self.controller.open_camera(idx, fourcc=yuyv_fourcc):
-            self._on_camera_opened()
+
+        if sys_name == 'Windows':
+            # Windows 优先 MJPEG（压缩格式，高分辨率下才能跑到 30fps）
+            if self.controller.open_camera(idx, fourcc=mjpg_fourcc):
+                self._on_camera_opened()
+            elif self.controller.open_camera(idx, fourcc=yuyv_fourcc):
+                self._on_camera_opened()
+            elif self.controller.open_camera(idx):
+                self._on_camera_opened()
+            else:
+                self.show_message(tr('CANNOT_OPEN', self.current_lang) % idx)
         else:
-            if self.controller.open_camera(idx):
+            # Linux 及其他平台：保持原有 YUYV 优先逻辑
+            if self.controller.open_camera(idx, fourcc=yuyv_fourcc):
+                self._on_camera_opened()
+            elif self.controller.open_camera(idx):
                 self._on_camera_opened()
             else:
                 self.show_message(tr('CANNOT_OPEN', self.current_lang) % idx)
@@ -431,15 +446,30 @@ class CameraWidget(QWidget):
         cam = self.controller.cam
         if cam:
             supported = CameraController.enumerate_resolutions(cam)
+            sys_name = platform.system()
             if supported:
-                supported.sort(key=lambda x: x[0] * x[1], reverse=True)
-                best_w, best_h = supported[0]
+                if sys_name == 'Windows':
+                    # Windows：如果是 MJPEG，可以选最大；否则（YUYV 等未压缩）限制到 720p 以下
+                    actual_fourcc = self.controller.get_actual_fourcc()
+                    mjpg = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+                    if actual_fourcc == mjpg:
+                        candidates = supported
+                    else:
+                        candidates = [(w, h) for (w, h) in supported
+                                      if w * h <= 1280 * 720] or supported
+                else:
+                    # Linux 及其他平台：保持原逻辑，直接选最大
+                    candidates = supported
+
+                candidates.sort(key=lambda x: x[0] * x[1], reverse=True)
+                best_w, best_h = candidates[0]
                 if (best_w, best_h) != (self.cam_width, self.cam_height):
                     if self.controller.set_resolution(best_w, best_h):
                         self.cam_width, self.cam_height = best_w, best_h
                         self.cam_fps = self.controller.get_fps()
                         self.pixmap_view.setMinimumSize(self.cam_width // 2, self.cam_height // 2)
-            supported = CameraController.enumerate_resolutions(cam)
+
+            # 用同一份 supported 填充下拉框（不再重复枚举）
             current_res = (self.cam_width, self.cam_height)
             if current_res not in supported:
                 supported.append(current_res)

@@ -2,6 +2,7 @@ import cv2
 import time
 import platform
 
+
 class CameraController:
     """摄像头底层控制（打开、关闭、设置参数、枚举分辨率、读帧）"""
     def __init__(self):
@@ -54,9 +55,26 @@ class CameraController:
             self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
+        # Windows: 显式请求 30fps（DSHOW 有时会报 1，导致定时器被设成 1 秒一次）
+        if sys_name == 'Windows':
+            try:
+                self.cam.set(cv2.CAP_PROP_FPS, 30)
+            except Exception:
+                pass
+
         self.width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.fps = max(1, self.cam.get(cv2.CAP_PROP_FPS))
+
+        if sys_name == 'Windows':
+            reported = self.cam.get(cv2.CAP_PROP_FPS)
+            if reported is None or reported <= 1.0 or reported > 1000:
+                # 明显不是真实值，兜底为 30
+                reported = 30.0
+            self.fps = max(1.0, reported)
+        else:
+            # Linux / 其他平台保持原有逻辑
+            self.fps = max(1, self.cam.get(cv2.CAP_PROP_FPS))
+
         self.current_index = index
         if self.current_fourcc is None:
             self.current_fourcc = int(self.cam.get(cv2.CAP_PROP_FOURCC))

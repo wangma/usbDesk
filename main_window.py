@@ -3,7 +3,7 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QMainWindow, QAction   # ← 关键修改
 from i18n import tr
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 class MainWindow(QMainWindow):
     MSG_DURATION = 5000
